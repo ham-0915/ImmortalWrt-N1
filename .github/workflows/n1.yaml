@@ -1,0 +1,294 @@
+name: N1-Build
+
+on:
+  schedule:
+    - cron: '0 17 16 6 *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '选择编译版本'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - '24.10'
+          - '25.12'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: '24.10'
+            branch: 'openwrt-24.10'
+            kernel: '6.6.y'
+          - tag: '25.12'
+            branch: 'openwrt-25.12'
+            kernel: '6.18.y'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      actions: write
+      contents: write
+    env:
+      TAG: ${{ matrix.tag }}
+      BRANCH: ${{ matrix.branch }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+    - name: 检查版本
+      id: ver
+      run: |
+        INPUT="${{ github.event.inputs.version }}"
+        if [ "$INPUT" = "all" ] || [ "$INPUT" = "$TAG" ] || [ -z "$INPUT" ]; then
+          echo "run=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "跳过 $TAG（选择: $INPUT）"
+          echo "run=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - uses: actions/checkout@v4
+      if: steps.ver.outputs.run == 'true'
+
+    - name: 准备编译空间
+      if: steps.ver.outputs.run == 'true'
+      run: sudo mkdir -p /workdir && sudo chown "$USER:$GROUPS" /workdir
+
+    - name: 最大化磁盘空间
+      if: steps.ver.outputs.run == 'true'
+      uses: easimon/maximize-build-space@master
+      with:
+        root-reserve-mb: 10240
+        swap-size-mb: 2048
+        build-mount-path: /workdir
+        overprovision-lvm: 'true'
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
+        remove-codeql: 'true'
+        remove-docker-images: 'true'
+
+    - name: 安装编译依赖
+      if: steps.ver.outputs.run == 'true'
+      run: |
+        echo "::group::安装编译依赖"
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install --no-install-recommends ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk \
+          gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool \
+          libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+          libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool \
+          libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip \
+          p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+          python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig \
+          texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd libfuse-dev
+        sudo timedatectl set-timezone Asia/Shanghai
+        echo "::endgroup::"
+
+    - name: 克隆源码
+      if: steps.ver.outputs.run == 'true'
+      working-directory: /workdir
+      run: |
+        echo "::group::克隆源码 ($BRANCH)"
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt -b "$BRANCH" openwrt
+        ln -sf /workdir/openwrt "$GITHUB_WORKSPACE/openwrt"
+        echo "::endgroup::"
+
+    - name: 恢复 Ccache
+      if: steps.ver.outputs.run == 'true'
+      uses: actions/cache@v5
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-ccache-${{ env.TAG }}-${{ hashFiles('N1/n1.config') }}
+        restore-keys: ${{ runner.os }}-ccache-${{ env.TAG }}-
+
+    - name: 加载 Feeds
+      if: steps.ver.outputs.run == 'true'
+      run: |
+        echo "::group::生成 feeds.conf.default"
+        printf '%s\n' \
+          "src-git packages https://github.com/immortalwrt/packages.git;$BRANCH" \
+          "src-git luci https://github.com/immortalwrt/luci.git;$BRANCH" \
+          "src-git routing https://github.com/openwrt/routing.git;$BRANCH" \
+          "src-git telephony https://github.com/openwrt/telephony.git;$BRANCH" \
+          > openwrt/feeds.conf.default
+        cat openwrt/feeds.conf.default
+        echo "::endgroup::"
+        echo "::group::feeds update & install"
+        cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
+        echo "::endgroup::"
+
+    - name: 应用 DIY 配置
+      if: steps.ver.outputs.run == 'true'
+      run: |
+        echo "::group::复制配置文件"
+        if [ -f "N1/n1-${TAG}.config" ]; then
+          cp "N1/n1-${TAG}.config" openwrt/.config
+        else
+          cp N1/n1.config openwrt/.config
+        fi
+        chmod +x N1/diy-n1.sh
+        echo "::endgroup::"
+        echo "::group::执行 diy-n1.sh"
+        cd openwrt && "$GITHUB_WORKSPACE/N1/diy-n1.sh" "$TAG"
+        echo "::endgroup::"
+
+    - name: 下载源码包
+      if: steps.ver.outputs.run == 'true'
+      working-directory: /workdir/openwrt
+      run: |
+        echo "::group::make defconfig"
+        make defconfig
+        echo "::endgroup::"
+        echo "::group::make download"
+        make download -j8
+        find dl -size -1024c -exec rm -f {} \;
+        echo "::endgroup::"
+
+    - name: 编译固件
+      if: steps.ver.outputs.run == 'true'
+      id: compile
+      working-directory: /workdir/openwrt
+      run: |
+        export PATH="/usr/lib/ccache:$PATH"
+        mkdir -p ~/.ccache
+        ccache -M 4G && ccache -z
+        echo "::group::多线程编译 -j$(nproc)"
+        if make -j$(nproc); then
+          echo "status=success" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+        else
+          echo "::endgroup::"
+          echo "::warning::多线程失败，切换单线程排错..."
+          echo "::group::单线程编译 V=s"
+          if make -j1 V=s; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+          fi
+          echo "::endgroup::"
+        fi
+
+    - name: 打包固件
+      if: steps.ver.outputs.run == 'true' && steps.compile.outputs.status == 'success'
+      run: |
+        echo "::group::打包固件"
+        mkdir -p /workdir/upload openwrt-armvirt
+        mv openwrt/bin/targets/*/*/*-generic-rootfs.tar.gz openwrt-armvirt/
+        rm -rf /workdir/openwrt
+        echo "::endgroup::"
+
+    - name: 生成固件
+      if: steps.ver.outputs.run == 'true' && steps.compile.outputs.status == 'success'
+      uses: unifreq/openwrt_packit@master
+      env:
+        WHOAMI: ham
+        OPENWRT_ARMVIRT: openwrt-armvirt/*-generic-rootfs.tar.gz
+        PACKAGE_SOC: s905d
+        KERNEL_AUTO_LATEST: true
+        KERNEL_REPO_URL: ophub/kernel
+        KERNEL_USAGE: flippy
+        KERNEL_VERSION_NAME: ${{ matrix.kernel }}
+
+    - name: 整理并重命名打包产物
+      if: steps.ver.outputs.run == 'true' && steps.compile.outputs.status == 'success'
+      run: |
+        echo "::group::区分并重命名文件"
+        cd /opt/openwrt_packit/output/
+        for file in openwrt*; do
+          if [ -f "$file" ]; then
+            mv "$file" "${TAG}_${file}"
+          fi
+        done
+        ls -lh /opt/openwrt_packit/output/
+        echo "::endgroup::"
+
+    - name: 上传产物
+      if: steps.ver.outputs.run == 'true' && steps.compile.outputs.status == 'success'
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwrt-${{ matrix.tag }}
+        path: /opt/openwrt_packit/output/*
+        retention-days: 1
+
+
+  release:
+    needs: build
+    if: always() && needs.build.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        sparse-checkout: N1/logs.txt
+
+    - name: 下载所有产物
+      uses: actions/download-artifact@v4
+      with:
+        path: /tmp/artifacts
+        pattern: openwrt-*
+        merge-multiple: true
+
+    - name: 检查产物
+      id: check
+      run: |
+        if [ -z "$(ls -A /tmp/artifacts 2>/dev/null)" ]; then
+          echo "has_artifacts=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_artifacts=true" >> "$GITHUB_OUTPUT"
+          echo "固件列表："
+          ls -lh /tmp/artifacts/
+        fi
+
+    - name: 生成 Release 描述
+      if: steps.check.outputs.has_artifacts == 'true'
+      id: release
+      run: |
+        TAG_NAME="N1_$(date +%Y%m%d)"
+        DATE="$(date '+%Y-%m-%d %H:%M')"
+        VERSIONS=$(ls /tmp/artifacts/ | sed 's/openwrt-//' | tr '\n' '、' | sed 's/、$//')
+        {
+          echo "- **官方源码**: https://github.com/immortalwrt/immortalwrt"
+          echo "- **网关信息**: 192.168.123.2 | **账户**: root | **密码**: password"
+          echo "- **编译时间**: $DATE"
+          echo ""
+          echo "### 更新日志"
+          [ -f "N1/logs.txt" ] && cat "N1/logs.txt" || echo "- 常规更新"
+        } > /tmp/desc.txt
+        echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+        echo "标签: $TAG_NAME"
+
+    - name: 发布 Release
+      if: steps.check.outputs.has_artifacts == 'true'
+      uses: ncipollo/release-action@v1
+      with:
+        name: "OpenWrt-N1"
+        tag: ${{ steps.release.outputs.tag }}
+        artifacts: /tmp/artifacts/*
+        allowUpdates: true
+        token: ${{ secrets.GITHUB_TOKEN }}
+        bodyFile: /tmp/desc.txt
+
+    - name: 清理旧 Release
+      if: steps.check.outputs.has_artifacts == 'true'
+      uses: dev-drprasad/delete-older-releases@master
+      with:
+        keep_latest: 5
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 清理旧记录
+      uses: Mattraks/delete-workflow-runs@v2
+      with:
+        retain_days: 5
+        keep_minimum_runs: 10
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 删除临时 Artifacts 产物
+      uses: geekyeggo/delete-artifact@v5
+      with:
+        name: openwrt-*
