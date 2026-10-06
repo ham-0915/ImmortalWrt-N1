@@ -1,4 +1,4 @@
-name: N1-test
+name: N1-Build
 
 on:
   schedule:
