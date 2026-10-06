@@ -59,6 +59,25 @@ git clone --depth=1 https://github.com/timsaya/luci-app-bandix package/luci-app-
 git clone --depth=1 https://github.com/timsaya/openwrt-bandix package/openwrt-bandix
 git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
 git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
+git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
+log "注入 Nginx Quickfile 修复"
+mkdir -p package/base-files/files/etc/uci-defaults
+cat > package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile << 'EOF'
+#!/bin/sh
+uci set nginx.global.uci_enable='true'
+uci del nginx._lan; uci del nginx._redirect2ssl
+uci add nginx server; uci rename nginx.@server[0]='_lan'
+uci set nginx._lan.server_name='_lan'
+uci add_list nginx._lan.listen='80 default_server'
+uci add_list nginx._lan.listen='[::]:80 default_server'
+uci add_list nginx._lan.include='conf.d/*.locations'
+uci set nginx._lan.access_log='off'
+uci commit nginx
+/etc/init.d/nginx restart
+exit 0
+EOF
+chmod +x package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile
+
 # git clone --depth=1 https://github.com/vernesong/OpenClash package/openclash
 # git clone --depth=1 https://github.com/kenzok8/openwrt-clashoo.git package/openwrt-clashoo
 
@@ -88,29 +107,5 @@ EOF
 src/gz openwrt_kiddin9 https://dl.openwrt.ai/latest/packages/aarch64_cortex-a53/kiddin9
 EOF
 }
-
-# ============================================================
-# 克隆quickfile插件并修复显示问题
-# ============================================================
-git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
-
-log "注入 Nginx Quickfile 修复"
-mkdir -p package/base-files/files/etc/uci-defaults
-cat > package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile << 'EOF'
-#!/bin/sh
-uci set nginx.global.uci_enable='true'
-uci del nginx._lan; uci del nginx._redirect2ssl
-uci add nginx server; uci rename nginx.@server[0]='_lan'
-uci set nginx._lan.server_name='_lan'
-uci add_list nginx._lan.listen='80 default_server'
-uci add_list nginx._lan.listen='[::]:80 default_server'
-uci add_list nginx._lan.include='conf.d/*.locations'
-uci set nginx._lan.access_log='off'
-uci commit nginx
-/etc/init.d/nginx restart
-exit 0
-EOF
-chmod +x package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile
-
 # ============================================================
 log "完成 ✓"
