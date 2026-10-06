@@ -58,17 +58,11 @@ git clone --depth=1 https://github.com/sbwml/luci-app-openlist2 package/openlist
 git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
 git clone --depth=1 https://github.com/timsaya/luci-app-bandix package/luci-app-bandix
 git clone --depth=1 https://github.com/timsaya/openwrt-bandix package/openwrt-bandix
+git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
 # git clone --depth=1 https://github.com/vernesong/OpenClash package/openclash
 # git clone --depth=1 https://github.com/kenzok8/openwrt-clashoo.git package/openwrt-clashoo
 
-# --------------------------------------------------------------------------------------------------------
 git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
-# ── nikki 自定义三处设置为‘不修改’ ─────────────────────────────
-log "nikki: 清除默认值 log_level/ui_url/tun_stack"
-sed -i "/option 'log_level' 'warning'/d" package/nikki/nikki/files/nikki.conf
-sed -i "\#option 'ui_url' 'https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip'#d" package/nikki/nikki/files/nikki.conf
-sed -i "/option 'tun_stack' 'mixed'/d" package/nikki/nikki/files/nikki.conf
-
 # ── mihomo-meta 自动升级到 mihomo 最新稳定版 ─────────────────────
 # 规则：
 #   1. 查 MetaCubeX/mihomo 的最新稳定 tag（只认 vX.Y.Z，不含 Alpha/预发布）。
@@ -134,20 +128,6 @@ else
   log "nikki: 跳过 Mips 选项（已存在或界面文件结构已变）"
 fi
 
-# --------------------------------------------------------------------------------------------------------
-
-git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
-# ── lucky v3 适配 ─────────────────────────────────────────────
-# v3 的界面已改为 JS 视图，经 rpcd 调用 /usr/libexec/lucky-call，
-# 不再有 luasrc/controller/lucky.lua（旧的 luci.sys.exec 补丁已不适用，会导致 sed 报错中断编译）。
-# 这里只在 lucky-call 里加一行 ulimit 作为保险；找不到文件就跳过，避免上游再改结构时编译失败。
-LUCKY_CALL=package/lucky/lucky/files/lucky-call
-if [ -f "$LUCKY_CALL" ]; then
-  log "lucky: 在 lucky-call 中解除 ulimit -v（保险）"
-  sed -i '/^PROG=/i ulimit -v unlimited 2>/dev/null || true' "$LUCKY_CALL"
-else
-  log "lucky: 未找到 lucky-call，跳过 ulimit 补丁"
-fi
 
 # ============================================================
 # 注入软件源配置文件（仅 24.10）
@@ -176,6 +156,7 @@ EOF
 src/gz openwrt_kiddin9 https://dl.openwrt.ai/latest/packages/aarch64_cortex-a53/kiddin9
 EOF
 }
+
 
 # ============================================================
 log "注入 Nginx Quickfile 修复"
