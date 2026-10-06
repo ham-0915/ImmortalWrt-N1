@@ -67,12 +67,17 @@ git clone --depth=1 https://github.com/sbwml/luci-app-openlist2 package/openlist
 git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
 
 git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
-# ── 修复 luci-app-lucky 不显示"未安装"/"收集数据..."/"复位" 的问题 ───
-log "lucky: 修复 uhttpd 环境下 lucky 二进制调用因内存限制静默失败的问题"
-LUCKY_CTRL=package/lucky/luci-app-lucky/luasrc/controller/lucky.lua
-sed -i 's#luci.sys.exec("/usr/bin/lucky -info")#luci.sys.exec("ulimit -v unlimited 2>/dev/null; /usr/bin/lucky -info")#' "$LUCKY_CTRL"
-sed -i 's#luci.sys.exec("lucky -baseConfInfo -cd "..configPath)#luci.sys.exec("ulimit -v unlimited 2>/dev/null; lucky -baseConfInfo -cd "..configPath)#' "$LUCKY_CTRL"
-sed -i 's#luci.sys.exec(cmd)#luci.sys.exec("ulimit -v unlimited 2>/dev/null; "..cmd)#' "$LUCKY_CTRL"
+# ── lucky v3 适配 ─────────────────────────────────────────────
+# v3 的界面已改为 JS 视图，经 rpcd 调用 /usr/libexec/lucky-call，
+# 不再有 luasrc/controller/lucky.lua（旧的 luci.sys.exec 补丁已不适用，会导致 sed 报错中断编译）。
+# 这里只在 lucky-call 里加一行 ulimit 作为保险；找不到文件就跳过，避免上游再改结构时编译失败。
+LUCKY_CALL=package/lucky/lucky/files/lucky-call
+if [ -f "$LUCKY_CALL" ]; then
+  log "lucky: 在 lucky-call 中解除 ulimit -v（保险）"
+  sed -i '/^PROG=/i ulimit -v unlimited 2>/dev/null || true' "$LUCKY_CALL"
+else
+  log "lucky: 未找到 lucky-call，跳过 ulimit 补丁"
+fi
 
 git clone --depth=1 https://github.com/timsaya/luci-app-bandix package/luci-app-bandix
 git clone --depth=1 https://github.com/timsaya/openwrt-bandix package/openwrt-bandix
@@ -85,7 +90,7 @@ git clone --depth=1 https://github.com/timsaya/openwrt-bandix package/openwrt-ba
 [ "$VERSION" = "24.10" ] && {
   log "24.10 软件源配置"
   mkdir -p package/base-files/files/etc/opkg
-  
+
   cat > package/base-files/files/etc/opkg.conf << 'EOF'
 dest root /
 dest ram /tmp
