@@ -82,8 +82,18 @@ chmod +x package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile
 # git clone --depth=1 https://github.com/kenzok8/openwrt-clashoo.git package/openwrt-clashoo
 
 # ============================================================
-# 注入软件源配置文件（仅 24.10）
+# 注入软件源配置文件
 # ============================================================
+# ── APK 配置（仅 25.12）─────────────────────────────────────
+[ "$VERSION" = "25.12" ] && {
+  log "25.12 APK 软件源配置"
+  mkdir -p package/base-files/files/etc/apk/repositories.d
+
+  cat > package/base-files/files/etc/apk/repositories.d/customfeeds.list << 'EOF'
+https://down.dllkids.xyz/openwrt-feed/25.12/aarch64_cortex-a53/packages.adb
+EOF
+}
+
 # ── opkg 配置（仅 24.10）───────────────────────────────────
 [ "$VERSION" = "24.10" ] && {
   log "24.10 软件源配置"
@@ -104,7 +114,8 @@ EOF
 # add your custom package feeds here
 #
 # src/gz example_feed_name http://www.example.com/path/to/files
-src/gz openwrt_kiddin9 https://dl.openwrt.ai/latest/packages/aarch64_cortex-a53/kiddin9
+# src/gz openwrt_kiddin9 https://dl.openwrt.ai/latest/packages/aarch64_cortex-a53/kiddin9
+src/gz dllkids https://down.dllkids.xyz/openwrt-feed/24.10/aarch64_cortex-a53
 EOF
 }
 
