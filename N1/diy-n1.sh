@@ -110,5 +110,32 @@ src/gz dllkids https://down.dllkids.xyz/openwrt-feed/24.10/aarch64_cortex-a53
 EOF
 }
 
+# ── apk 配置（仅 25.12）─────────
+# customfeeds.list 是 apk 包自带的文件，不能在 base-files 里再放一个同名文件
+# （会在 package/install 阶段报 "trying to overwrite ... owned by apk-openssl" 导致编译失败）。
+# 所以直接在 apk 包的源文件末尾追加，保留原有注释头；路径变了则退回到首次开机追加。
+[ "$VERSION" = "25.12" ] && {
+  log "25.12 软件源配置"
+  APK_LIST=package/system/apk/files/customfeeds.list
+  APK_FEED_URL="https://down.dllkids.xyz/openwrt-feed/25.12/aarch64_cortex-a53/packages.adb"
+
+  if [ -f "$APK_LIST" ]; then
+    if ! grep -qxF "$APK_FEED_URL" "$APK_LIST"; then
+      [ -z "$(tail -c1 "$APK_LIST")" ] || echo >> "$APK_LIST"    # 末尾无换行则补一个
+      echo "$APK_FEED_URL" >> "$APK_LIST"
+    fi
+  else
+    log "未找到 $APK_LIST，改用 uci-defaults 在首次开机时追加"
+    mkdir -p package/base-files/files/etc/uci-defaults
+    cat > package/base-files/files/etc/uci-defaults/98-apk-customfeeds << EOF
+#!/bin/sh
+f=/etc/apk/repositories.d/customfeeds.list
+grep -qxF '${APK_FEED_URL}' "\$f" 2>/dev/null || echo '${APK_FEED_URL}' >> "\$f"
+exit 0
+EOF
+    chmod +x package/base-files/files/etc/uci-defaults/98-apk-customfeeds
+  fi
+}
+
 # ============================================================
 log "完成 ✓"
