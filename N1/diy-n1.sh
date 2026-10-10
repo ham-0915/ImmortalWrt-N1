@@ -42,34 +42,37 @@ rm -rf feeds/luci/applications/luci-app-{lucky,mosdns,nikki,openclash,openlist,o
 [ "$VERSION" = "24.10" ] && sed -i '/CONFIG_PACKAGE_luci-app-dockerman/d' .config
 
 #  ============================================================
-# 克隆 Passwall 2
+# 克隆 所需要的插件
 # ============================================================
-log "克隆 Passwall 2"
+log "克隆官方源码"
 git clone --depth=1 https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git package/passwall-packages
 git clone --depth=1 https://github.com/Openwrt-Passwall/openwrt-passwall2.git package/passwall2
-
-# ============================================================
-# 克隆第三方插件
-# ============================================================
-log "克隆第三方插件"
 git clone --depth=1 https://github.com/ophub/luci-app-amlogic package/amlogic
 git clone --depth=1 -b v5 https://github.com/sbwml/luci-app-mosdns package/mosdns
 git clone --depth=1 https://github.com/sbwml/luci-app-openlist2 package/openlist2
 git clone --depth=1 https://github.com/timsaya/luci-app-bandix package/luci-app-bandix
 git clone --depth=1 https://github.com/timsaya/openwrt-bandix package/openwrt-bandix
 git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
-
 # ----------------------------------------------------------------------------------
 git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
-# 设置为：启用 FullCone NAT 不打勾（旁路由不需要，且避免抢占 nikki 的 DNS 劫持）
-log "设置为：启用 FullCone NAT 不打勾"
-FW_CFG="package/network/config/firewall/files/firewall.config"
-if [ -f "$FW_CFG" ]; then
-  sed -i -E "s/(option fullcone[46]?[[:space:]]+)('?)1('?)/\1\20\3/g" "$FW_CFG"
-  log "设置成功 ✓"
-else
-  log "警告: 未找到 $FW_CFG，已跳过"
-fi
+# 设置为：启用 FullCone NAT 不打勾（首次开机时写入，覆盖其它来源的默认值）
+log "设置默认关闭 FullCone NAT"
+mkdir -p files/etc/uci-defaults
+cat > files/etc/uci-defaults/zzzz-fullcone-off <<'EOF'
+#!/bin/sh
+# 旁路由不需要 FullCone；它会让 nikki 的 UDP 53 DNS 劫持失效
+uci -q set firewall.@defaults[0].fullcone='0'
+uci -q set firewall.@defaults[0].fullcone6='0'
+uci -q commit firewall
+# 如果装了 TurboACC，它会在启动时重新写入 FullCone，一并关掉
+uci -q get turboacc.config.fullcone_nat >/dev/null 2>&1 && {
+  uci -q set turboacc.config.fullcone_nat='0'
+  uci -q commit turboacc
+}
+exit 0
+EOF
+chmod +x files/etc/uci-defaults/zzzz-fullcone-off
+[ -x files/etc/uci-defaults/zzzz-fullcone-off ] && log "设置成功 ✓" || { log "失败"; exit 1; }
 # ----------------------------------------------------------------------------------------
 git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
 log "注入 Nginx Quickfile 修复"
@@ -90,7 +93,6 @@ exit 0
 EOF
 chmod +x package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile
 # ----------------------------------------------------------------------------------------
-
 # git clone --depth=1 https://github.com/vernesong/OpenClash package/openclash
 # git clone --depth=1 https://github.com/kenzok8/openwrt-clashoo.git package/openwrt-clashoo
 
