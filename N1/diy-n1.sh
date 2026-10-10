@@ -61,14 +61,14 @@ git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
 
 # ----------------------------------------------------------------------------------
 git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
-# 默认关闭 FullCone NAT（旁路由不需要，且避免抢占 nikki 的 DNS 劫持）
-log "默认关闭 FullCone NAT"
+# 设置为：启用 FullCone NAT 不打勾（旁路由不需要，且避免抢占 nikki 的 DNS 劫持）
+log "设置为：启用 FullCone NAT 不打勾"
 FW_CFG="package/network/config/firewall/files/firewall.config"
 if [ -f "$FW_CFG" ]; then
   sed -i -E "s/(option fullcone[46]?[[:space:]]+)('?)1('?)/\1\20\3/g" "$FW_CFG"
-  grep -n 'fullcone' "$FW_CFG" || true
+  log "设置成功 ✓"
 else
-  log "警告: 未找到 $FW_CFG，跳过"
+  log "警告: 未找到 $FW_CFG，已跳过"
 fi
 # ----------------------------------------------------------------------------------------
 git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
