@@ -58,7 +58,19 @@ git clone --depth=1 https://github.com/sbwml/luci-app-openlist2 package/openlist
 git clone --depth=1 https://github.com/timsaya/luci-app-bandix package/luci-app-bandix
 git clone --depth=1 https://github.com/timsaya/openwrt-bandix package/openwrt-bandix
 git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
+
+# ----------------------------------------------------------------------------------
 git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
+# 默认关闭 FullCone NAT（旁路由不需要，且避免抢占 nikki 的 DNS 劫持）
+log "默认关闭 FullCone NAT"
+FW_CFG="package/network/config/firewall/files/firewall.config"
+if [ -f "$FW_CFG" ]; then
+  sed -i -E "s/(option fullcone[46]?[[:space:]]+)('?)1('?)/\1\20\3/g" "$FW_CFG"
+  grep -n 'fullcone' "$FW_CFG" || true
+else
+  log "警告: 未找到 $FW_CFG，跳过"
+fi
+# ----------------------------------------------------------------------------------------
 git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
 log "注入 Nginx Quickfile 修复"
 mkdir -p package/base-files/files/etc/uci-defaults
@@ -77,6 +89,7 @@ uci commit nginx
 exit 0
 EOF
 chmod +x package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile
+# ----------------------------------------------------------------------------------------
 
 # git clone --depth=1 https://github.com/vernesong/OpenClash package/openclash
 # git clone --depth=1 https://github.com/kenzok8/openwrt-clashoo.git package/openwrt-clashoo
