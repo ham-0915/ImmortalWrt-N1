@@ -1,3 +1,4 @@
+# 把此脚本 加入 diy-n1.sh 中 可以解决nikki这个问题
 # ===== nikki: 把 DNS 劫持放到早于 fw4 dstnat 的链（规避 FullCone NAT 抢占 UDP 53）=====
 nikki_found=0
 while IFS= read -r f; do
