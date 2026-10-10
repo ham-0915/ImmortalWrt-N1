@@ -1,0 +1,40 @@
+# ===== nikki: 把 DNS 劫持放到早于 fw4 dstnat 的链（规避 FullCone NAT 抢占 UDP 53）=====
+nikki_found=0
+while IFS= read -r f; do
+  nikki_found=1
+  python3 - "$f" <<'PY'
+import re, sys
+path = sys.argv[1]
+src = open(path, encoding='utf-8').read()
+if 'chain dstnat_dns' in src:
+    print(f'[nikki-patch] already patched: {path}')
+    sys.exit(0)
+pat = re.compile(
+    r'(?P<i>[ \t]*)chain dstnat \{[ \t]*\n'
+    r'[ \t]*type nat hook prerouting priority dstnat \+ 1; policy accept;[ \t]*\n'
+    r'[ \t]*\{% if \(length\(dns_hijack_nfproto\) > 0\): %\}[ \t]*\n'
+    r'[ \t]*iifname @lan_inbound_device jump lan_dns_hijack[ \t]*\n'
+    r'[ \t]*\{% endif %\}[ \t]*\n'
+)
+def repl(m):
+    i = m.group('i')
+    return '\n'.join([
+        i + '{% if (length(dns_hijack_nfproto) > 0): %}',
+        i + 'chain dstnat_dns {',
+        i + '\ttype nat hook prerouting priority dstnat - 1; policy accept;',
+        i + '\tiifname @lan_inbound_device jump lan_dns_hijack',
+        i + '}',
+        i + '{% endif %}',
+        '',
+        i + 'chain dstnat {',
+        i + '\ttype nat hook prerouting priority dstnat + 1; policy accept;',
+    ]) + '\n'
+out, n = pat.subn(repl, src)
+if n != 1:
+    sys.exit(f'[nikki-patch] pattern matched {n} times (expected 1): {path}')
+open(path, 'w', encoding='utf-8').write(out)
+PY
+  grep -q 'chain dstnat_dns' "$f" || { echo "[nikki-patch] 补丁未生效: $f"; exit 1; }
+  echo "[nikki-patch] OK: $f"
+done < <(find . -type f -path '*nikki/files/ucode/hijack.ut' 2>/dev/null)
+[ "$nikki_found" = 1 ] || { echo "[nikki-patch] 没找到 hijack.ut，nikki 不是从源码编译的？"; exit 1; }
