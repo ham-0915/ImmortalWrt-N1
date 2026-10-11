@@ -102,7 +102,7 @@ jobs:
       uses: actions/cache@v5
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-ccache-${{ env.TAG }}-${{ hashFiles('N1/*.config') }}
+        key: ${{ runner.os }}-ccache-${{ env.TAG }}-${{ hashFiles('N1/n1.config') }}
         restore-keys: ${{ runner.os }}-ccache-${{ env.TAG }}-
 
     - name: 加载 Feeds
