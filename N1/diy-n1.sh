@@ -42,46 +42,64 @@ rm -rf feeds/luci/applications/luci-app-{lucky,mosdns,nikki,openclash,openlist,o
 [ "$VERSION" = "24.10" ] && sed -i '/CONFIG_PACKAGE_luci-app-dockerman/d' .config
 
 #  ============================================================
-# 克隆 Passwall 2
+# 克隆 所需要的插件
 # ============================================================
-log "克隆 Passwall 2"
+log "克隆官方源码"
 git clone --depth=1 https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git package/passwall-packages
 git clone --depth=1 https://github.com/Openwrt-Passwall/openwrt-passwall2.git package/passwall2
-
-# ============================================================
-# 克隆第三方插件
-# ============================================================
-log "克隆第三方插件"
 git clone --depth=1 https://github.com/ophub/luci-app-amlogic package/amlogic
-# git clone --depth=1 https://github.com/vernesong/OpenClash package/openclash
-# git clone --depth=1 https://github.com/kenzok8/openwrt-clashoo.git package/openwrt-clashoo
-
-git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
-# ── nikki 自定义三处设置为‘不修改’ ─────────────────────────────
-log "nikki: 清除默认值 log_level/ui_url/tun_stack"
-sed -i "/option 'log_level' 'warning'/d" package/nikki/nikki/files/nikki.conf
-sed -i "\#option 'ui_url' 'https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip'#d" package/nikki/nikki/files/nikki.conf
-sed -i "/option 'tun_stack' 'mixed'/d" package/nikki/nikki/files/nikki.conf
 git clone --depth=1 -b v5 https://github.com/sbwml/luci-app-mosdns package/mosdns
 git clone --depth=1 https://github.com/sbwml/luci-app-openlist2 package/openlist2
-git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
-
-git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
-# ── 修复 luci-app-lucky 不显示"未安装"/"收集数据..."/"复位" 的问题 ───
-log "lucky: 修复 uhttpd 环境下 lucky 二进制调用因内存限制静默失败的问题"
-LUCKY_CTRL=package/lucky/luci-app-lucky/luasrc/controller/lucky.lua
-sed -i 's#luci.sys.exec("/usr/bin/lucky -info")#luci.sys.exec("ulimit -v unlimited 2>/dev/null; /usr/bin/lucky -info")#' "$LUCKY_CTRL"
-sed -i 's#luci.sys.exec("lucky -baseConfInfo -cd "..configPath)#luci.sys.exec("ulimit -v unlimited 2>/dev/null; lucky -baseConfInfo -cd "..configPath)#' "$LUCKY_CTRL"
-sed -i 's#luci.sys.exec(cmd)#luci.sys.exec("ulimit -v unlimited 2>/dev/null; "..cmd)#' "$LUCKY_CTRL"
-
 git clone --depth=1 https://github.com/timsaya/luci-app-bandix package/luci-app-bandix
 git clone --depth=1 https://github.com/timsaya/openwrt-bandix package/openwrt-bandix
+git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/lucky
+# git clone --depth=1 https://github.com/vernesong/OpenClash package/openclash
+# git clone --depth=1 https://github.com/kenzok8/openwrt-clashoo.git package/openwrt-clashoo
+# ----------------------------------------------------------------------------------
+git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
+# FullCone NAT 不打勾（首次开机时写入，覆盖其它来源的默认值）
+log "设置为：启用 FullCone NAT 不打勾"
+mkdir -p files/etc/uci-defaults
+cat > files/etc/uci-defaults/zzzz-fullcone-off <<'EOF'
+#!/bin/sh
+# 旁路由不需要 FullCone；它会让 nikki 的 UDP 53 DNS 劫持失效
+uci -q set firewall.@defaults[0].fullcone='0'
+uci -q set firewall.@defaults[0].fullcone6='0'
+uci -q commit firewall
+# 如果装了 TurboACC，它会在启动时重新写入 FullCone，一并关掉
+uci -q get turboacc.config.fullcone_nat >/dev/null 2>&1 && {
+  uci -q set turboacc.config.fullcone_nat='0'
+  uci -q commit turboacc
+}
+exit 0
+EOF
+chmod +x files/etc/uci-defaults/zzzz-fullcone-off
+[ -x files/etc/uci-defaults/zzzz-fullcone-off ] && log "设置成功 ✓" || { log "失败"; exit 1; }
+# ----------------------------------------------------------------------------------------
+git clone --depth=1 https://github.com/sbwml/luci-app-quickfile package/luci-app-quickfile
+log "注入 Nginx Quickfile 修复"
+mkdir -p package/base-files/files/etc/uci-defaults
+cat > package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile << 'EOF'
+#!/bin/sh
+uci set nginx.global.uci_enable='true'
+uci del nginx._lan; uci del nginx._redirect2ssl
+uci add nginx server; uci rename nginx.@server[0]='_lan'
+uci set nginx._lan.server_name='_lan'
+uci add_list nginx._lan.listen='80 default_server'
+uci add_list nginx._lan.listen='[::]:80 default_server'
+uci add_list nginx._lan.include='conf.d/*.locations'
+uci set nginx._lan.access_log='off'
+uci commit nginx
+/etc/init.d/nginx restart
+exit 0
+EOF
+chmod +x package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile
 
 # ============================================================
-# 注入软件源配置文件（仅 24.10）
+# 注入软件源配置文件
 # ============================================================
 
-# ── opkg 配置（仅 24.10）───────────────────────────────────
+# ── opkg 配置（仅 24.10）─────────
 [ "$VERSION" = "24.10" ] && {
   log "24.10 软件源配置"
   mkdir -p package/base-files/files/etc/opkg
@@ -101,28 +119,44 @@ EOF
 # add your custom package feeds here
 #
 # src/gz example_feed_name http://www.example.com/path/to/files
-src/gz openwrt_kiddin9 https://dl.openwrt.ai/latest/packages/aarch64_cortex-a53/kiddin9
+# src/gz openwrt_kiddin9 https://dl.openwrt.ai/latest/packages/aarch64_cortex-a53/kiddin9
+src/gz dllkids https://down.dllkids.xyz/openwrt-feed/24.10/aarch64_cortex-a53
 EOF
 }
 
-# ============================================================
-log "注入 Nginx Quickfile 修复"
-mkdir -p package/base-files/files/etc/uci-defaults
-cat > package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile << 'EOF'
+# ── apk 配置（仅 25.12）─────────
+# 直接在 apk 包的源文件末尾追加，保留原有注释头；路径变了则退回到首次开机追加。
+[ "$VERSION" = "25.12" ] && {
+  log "25.12 软件源配置"
+  APK_LIST=package/system/apk/files/customfeeds.list
+  APK_FEED_URL="https://down.dllkids.xyz/openwrt-feed/25.12/aarch64_cortex-a53/packages.adb"
+
+  # 公钥：没有它，固件里 apk update 会报错。
+  # 放在顶层 files/ 覆盖层，不属于任何包，不会和 apk 包的文件冲突。
+  APK_KEY_URL="https://down.dllkids.xyz/openwrt-feed/keys/dllkids-feed.pub.pem"
+  APK_KEY_FILE=files/etc/apk/keys/dllkids-feed.pub.pem
+  log "下载 dllkids 软件源公钥"
+  mkdir -p "$(dirname "$APK_KEY_FILE")"
+  curl -fsSL --retry 3 -o "$APK_KEY_FILE" "$APK_KEY_URL" || { log "公钥下载失败: $APK_KEY_URL"; exit 1; }
+  grep -q 'BEGIN PUBLIC KEY' "$APK_KEY_FILE" || { log "下载内容不是有效的 PEM 公钥"; exit 1; }
+
+  if [ -f "$APK_LIST" ]; then
+    if ! grep -qxF "$APK_FEED_URL" "$APK_LIST"; then
+      [ -z "$(tail -c1 "$APK_LIST")" ] || echo >> "$APK_LIST"    # 末尾无换行则补一个
+      echo "$APK_FEED_URL" >> "$APK_LIST"
+    fi
+  else
+    log "未找到 $APK_LIST，改用 uci-defaults 在首次开机时追加"
+    mkdir -p package/base-files/files/etc/uci-defaults
+    cat > package/base-files/files/etc/uci-defaults/98-apk-customfeeds << EOF
 #!/bin/sh
-uci set nginx.global.uci_enable='true'
-uci del nginx._lan; uci del nginx._redirect2ssl
-uci add nginx server; uci rename nginx.@server[0]='_lan'
-uci set nginx._lan.server_name='_lan'
-uci add_list nginx._lan.listen='80 default_server'
-uci add_list nginx._lan.listen='[::]:80 default_server'
-uci add_list nginx._lan.include='conf.d/*.locations'
-uci set nginx._lan.access_log='off'
-uci commit nginx
-/etc/init.d/nginx restart
+f=/etc/apk/repositories.d/customfeeds.list
+grep -qxF '${APK_FEED_URL}' "\$f" 2>/dev/null || echo '${APK_FEED_URL}' >> "\$f"
 exit 0
 EOF
-chmod +x package/base-files/files/etc/uci-defaults/99-fix-nginx-quickfile
-# ============================================================
+    chmod +x package/base-files/files/etc/uci-defaults/98-apk-customfeeds
+  fi
+}
 
+# ============================================================
 log "完成 ✓"
