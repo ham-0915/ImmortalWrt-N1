@@ -2,7 +2,7 @@ name: N1-Build
 
 on:
   schedule:
-    - cron: '0 17 16 6 *'
+    - cron: '0 17 16 */2 *'
   workflow_dispatch:
     inputs:
       version:
@@ -102,7 +102,7 @@ jobs:
       uses: actions/cache@v5
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-ccache-${{ env.TAG }}-${{ hashFiles('N1/n1.config') }}
+        key: ${{ runner.os }}-ccache-${{ env.TAG }}-${{ hashFiles('N1/*.config') }}
         restore-keys: ${{ runner.os }}-ccache-${{ env.TAG }}-
 
     - name: 加载 Feeds
@@ -169,6 +169,12 @@ jobs:
           fi
           echo "::endgroup::"
         fi
+
+    - name: 编译失败则标红
+      if: steps.ver.outputs.run == 'true' && steps.compile.outputs.status != 'success'
+      run: |
+        echo "::error::${TAG} 编译失败"
+        exit 1
 
     - name: 打包固件
       if: steps.ver.outputs.run == 'true' && steps.compile.outputs.status == 'success'
@@ -247,9 +253,8 @@ jobs:
       if: steps.check.outputs.has_artifacts == 'true'
       id: release
       run: |
-        TAG_NAME="N1_$(date +%Y%m%d)"
-        DATE="$(date '+%Y-%m-%d %H:%M')"
-        VERSIONS=$(ls /tmp/artifacts/ | sed 's/openwrt-//' | tr '\n' '、' | sed 's/、$//')
+        TAG_NAME="N1_$(TZ=Asia/Shanghai date +%Y%m%d)"
+        DATE="$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')"
         {
           echo "- **官方源码**: https://github.com/immortalwrt/immortalwrt"
           echo "- **网关信息**: 192.168.123.2 | **账户**: root | **密码**: password"
