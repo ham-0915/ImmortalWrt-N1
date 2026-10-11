@@ -126,13 +126,20 @@ EOF
 }
 
 # ── apk 配置（仅 25.12）─────────
-# customfeeds.list 是 apk 包自带的文件，不能在 base-files 里再放一个同名文件
-# （会在 package/install 阶段报 "trying to overwrite ... owned by apk-openssl" 导致编译失败）。
-# 所以直接在 apk 包的源文件末尾追加，保留原有注释头；路径变了则退回到首次开机追加。
+# 直接在 apk 包的源文件末尾追加，保留原有注释头；路径变了则退回到首次开机追加。
 [ "$VERSION" = "25.12" ] && {
   log "25.12 软件源配置"
   APK_LIST=package/system/apk/files/customfeeds.list
   APK_FEED_URL="https://down.dllkids.xyz/openwrt-feed/25.12/aarch64_cortex-a53/packages.adb"
+
+  # 公钥：没有它，固件里 apk update 会报错。
+  # 放在顶层 files/ 覆盖层，不属于任何包，不会和 apk 包的文件冲突。
+  APK_KEY_URL="https://down.dllkids.xyz/openwrt-feed/keys/dllkids-feed.pub.pem"
+  APK_KEY_FILE=files/etc/apk/keys/dllkids-feed.pub.pem
+  log "下载 dllkids 软件源公钥"
+  mkdir -p "$(dirname "$APK_KEY_FILE")"
+  curl -fsSL --retry 3 -o "$APK_KEY_FILE" "$APK_KEY_URL" || { log "公钥下载失败: $APK_KEY_URL"; exit 1; }
+  grep -q 'BEGIN PUBLIC KEY' "$APK_KEY_FILE" || { log "下载内容不是有效的 PEM 公钥"; exit 1; }
 
   if [ -f "$APK_LIST" ]; then
     if ! grep -qxF "$APK_FEED_URL" "$APK_LIST"; then
