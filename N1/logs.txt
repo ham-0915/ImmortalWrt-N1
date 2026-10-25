@@ -14,13 +14,16 @@
 - 配置 Passwall 2 的代理内核、nftables 透明代理及常用组件选项。
 - 设备配置涵盖 USB 存储、常用文件系统、SSH、Samba、WireGuard 等功能；实际纳入内容以构建配置为准。
 
-### 问题修复（2026-10-11）
+### 问题修复记录
 
-- 修复 Lucky V3 编译失败的问题。
+> 2026-10-15：
+- 修复 Lucky V2.27.2 编译失败的问题。
 - 添加 Nginx 初始化配置，修正 QuickFile 使用时的 Web 服务配置问题。
 - 持续修复构建与使用中发现的问题，并同步上游更新。
-
 - 24.10：启用 dllkids 的 N1（`aarch64_cortex-a53`）opkg 软件源，暂时注释 kiddin9 软件源。
 - 25.12：添加 dllkids 的 N1（`aarch64_cortex-a53`）APK 软件源。
 - 默认关闭 FullCone NAT（旁路由不需要，且避免抢占 nikki 的 DNS 劫持）
 - 其他代码的微调整。
+
+> 2026-10-24：
+- 源码同步上游更新。
